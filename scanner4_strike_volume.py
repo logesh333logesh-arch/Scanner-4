@@ -123,7 +123,7 @@ def get_fo_stock_universe(csv_path: str = "fo_stocks.csv") -> List[str]:
     and re-extracting the SYMBOL column.
     """
     import csv
-    with open(csv_path) as f:
+    with open(csv_path, encoding="utf-8-sig") as f:  # utf-8-sig strips BOM if present
         reader = csv.DictReader(f)
         return [row["SYMBOL"].strip() for row in reader]
 
@@ -137,7 +137,7 @@ def get_instrument_key_map(csv_path: str = "fo_instrument_keys.csv") -> Dict[str
     """
     import csv
     mapping = {}
-    with open(csv_path) as f:
+    with open(csv_path, encoding="utf-8-sig") as f:  # utf-8-sig strips BOM if present
         reader = csv.DictReader(f)
         for row in reader:
             mapping[row["SYMBOL"].strip()] = row["INSTRUMENT_KEY"].strip()
