@@ -137,8 +137,11 @@ def main():
     all_results = nifty_results + sensex_results + stock_results
     signals = [r for r in all_results if r["signal"]]
 
-    print(f"\n[DONE] Scanned {len(all_results)} strikes, {len(signals)} signals found.\n")
-    for r in signals:
+    print(f"\n[DONE] Scanned {len(all_results)} strikes, {len(signals)} signals found (at current threshold).\n")
+    print("=" * 50)
+    print("ALL STRIKES (for calibrating your depth% threshold):")
+    print("=" * 50)
+    for r in all_results:
         print(format_signal_message(r))
         print("-" * 40)
 
