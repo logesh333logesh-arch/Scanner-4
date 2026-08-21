@@ -124,7 +124,10 @@ def get_fo_stock_universe(csv_path: str = "fo_stocks.csv") -> List[str]:
     """
     import csv
     with open(csv_path, encoding="utf-8-sig") as f:  # utf-8-sig strips BOM if present
-        reader = csv.DictReader(f)
+        first_line = f.readline()
+        delimiter = "\t" if "\t" in first_line else ","
+        f.seek(0)
+        reader = csv.DictReader(f, delimiter=delimiter)
         reader.fieldnames = [name.strip() for name in reader.fieldnames]  # strip stray tabs/spaces
         return [row["SYMBOL"].strip() for row in reader]
 
@@ -139,7 +142,10 @@ def get_instrument_key_map(csv_path: str = "fo_instrument_keys.csv") -> Dict[str
     import csv
     mapping = {}
     with open(csv_path, encoding="utf-8-sig") as f:  # utf-8-sig strips BOM if present
-        reader = csv.DictReader(f)
+        first_line = f.readline()
+        delimiter = "\t" if "\t" in first_line else ","
+        f.seek(0)
+        reader = csv.DictReader(f, delimiter=delimiter)
         reader.fieldnames = [name.strip() for name in reader.fieldnames]  # strip stray tabs/spaces
         for row in reader:
             mapping[row["SYMBOL"].strip()] = row["INSTRUMENT_KEY"].strip()
