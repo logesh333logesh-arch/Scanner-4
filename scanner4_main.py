@@ -51,6 +51,11 @@ SENSEX_EXPIRY = "27-08-2026"  # TODO: today's relevant weekly expiry, DD-MM-YYYY
 STOCK_EXPIRY = "24-09-2026"   # TODO: current monthly expiry, DD-MM-YYYY
 
 NARROW_CPR_THRESHOLD_PCT = 0.5  # tune based on backtesting
+INVERSION_DEPTH_THRESHOLD_PCT = 20.0  # tuned from live data: clear gap between
+                                        # weak inversions (4-14%) and strong ones (40-63%)
+INVERSION_DEPTH_PCT = 20.0      # based on observed data: noise clusters under ~15%,
+                                 # real signals cluster 40%+. 20% is a safe cutoff.
+                                 # Adjust after a few more days of live output.
 
 
 def scan_index(name: str, spot_open: float, expiry: str,
@@ -77,7 +82,7 @@ def scan_index(name: str, spot_open: float, expiry: str,
                 continue
 
             label = f"{name} {int(strike)} {opt_type}"
-            result = check_strike_signal(label, daily_ohlc, weekly_ohlc, NARROW_CPR_THRESHOLD_PCT)
+            result = check_strike_signal(label, daily_ohlc, weekly_ohlc, NARROW_CPR_THRESHOLD_PCT, INVERSION_DEPTH_THRESHOLD_PCT)
             results.append(result)
 
     return results
@@ -109,7 +114,7 @@ def scan_stocks(access_token: str, option_lookup: dict, today: datetime.date) ->
                 if not daily_ohlc or not weekly_ohlc:
                     continue
                 label = f"{symbol} {int(strike)} {opt_type}"
-                result = check_strike_signal(label, daily_ohlc, weekly_ohlc, NARROW_CPR_THRESHOLD_PCT)
+                result = check_strike_signal(label, daily_ohlc, weekly_ohlc, NARROW_CPR_THRESHOLD_PCT, INVERSION_DEPTH_THRESHOLD_PCT)
                 results.append(result)
 
     return results
@@ -137,11 +142,12 @@ def main():
     all_results = nifty_results + sensex_results + stock_results
     signals = [r for r in all_results if r["signal"]]
 
-    print(f"\n[DONE] Scanned {len(all_results)} strikes, {len(signals)} signals found (at current threshold).\n")
+    print(f"\n[DONE] Scanned {len(all_results)} strikes, {len(signals)} REAL signals found "
+          f"(depth >= {INVERSION_DEPTH_THRESHOLD_PCT}%).\n")
     print("=" * 50)
-    print("ALL STRIKES (for calibrating your depth% threshold):")
+    print("SIGNAL STRIKES ONLY:")
     print("=" * 50)
-    for r in all_results:
+    for r in signals:
         print(format_signal_message(r))
         print("-" * 40)
 
