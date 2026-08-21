@@ -148,8 +148,16 @@ def check_strike_signal(strike_symbol: str,
 def format_signal_message(result: dict) -> str:
     """Formats a scan result into the Telegram-ready message layout you asked for."""
     d, w = result["daily_cpr"], result["weekly_cpr"]
-    d_tag = "Inverted ✓✓" if d["strong_inverted"] else ("Inverted (weak)" if d["inverted"] else "Normal")
-    w_tag = "Inverted ✓✓" if w["strong_inverted"] else ("Inverted (weak)" if w["inverted"] else "Normal")
+
+    def tag_with_depth(cpr_dict, bc, tc, pivot):
+        if not cpr_dict["inverted"]:
+            return "Normal"
+        depth_pct = ((bc - tc) / pivot) * 100 if pivot else 0
+        marker = "✓✓" if cpr_dict["strong_inverted"] else "(weak)"
+        return f"Inverted {marker} [depth={depth_pct:.1f}%]"
+
+    d_tag = tag_with_depth(d, d["bc"], d["tc"], d["pivot"])
+    w_tag = tag_with_depth(w, w["bc"], w["tc"], w["pivot"])
     lines = [
         f"{result['strike']}",
         f"Daily CPR:  BC={d['bc']} | Pivot={d['pivot']} | TC={d['tc']}  ({d_tag})",
