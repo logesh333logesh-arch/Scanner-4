@@ -39,6 +39,24 @@ class CPRLevels:
         """BC > Pivot AND TC < Pivot -> inverted CPR condition (our main signal)."""
         return self.bc > self.pivot and self.tc < self.pivot
 
+    def is_strong_inverted(self, min_depth_pct: float = 3.0) -> bool:
+        """
+        Stricter version of is_inverted: only True if the inversion is
+        'deep enough' to be meaningful, not just a marginal BC>Pivot flip.
+
+        min_depth_pct: (BC - TC) as a % of Pivot, must be >= this to count.
+        Plain is_inverted() triggers on ~40-50% of random candles (whenever
+        close < midpoint of high-low) - too noisy to trade on. This filter
+        keeps only strikes with a real, visible CPR inversion.
+
+        Tune min_depth_pct based on backtesting - start around 3-5% and
+        adjust based on how many signals per day you actually want.
+        """
+        if not self.is_inverted or self.pivot == 0:
+            return False
+        depth_pct = ((self.bc - self.tc) / self.pivot) * 100
+        return depth_pct >= min_depth_pct
+
     @property
     def width(self) -> float:
         return abs(self.tc - self.bc)
@@ -97,28 +115,32 @@ def aggregate_weekly_ohlc(daily_candles: list) -> OHLC:
 def check_strike_signal(strike_symbol: str,
                          daily_ohlc: OHLC,
                          weekly_ohlc: OHLC,
-                         narrow_threshold_pct: float = 0.5) -> dict:
+                         narrow_threshold_pct: float = 0.5,
+                         inversion_depth_pct: float = 3.0) -> dict:
     """
     Main function to call per option strike.
-    Returns a dict with both CPR levels + whether the inverted condition
-    triggered on the DAILY CPR (that's the scan signal), plus weekly
-    CPR shown alongside for context (as per your requirement).
+    Returns a dict with both CPR levels + whether the STRONG inverted
+    condition triggered on the DAILY CPR (that's the scan signal - uses
+    is_strong_inverted, not the raw is_inverted, to avoid noisy ~50% hit
+    rate), plus weekly CPR shown alongside for context.
     """
     daily_cpr = get_daily_cpr(daily_ohlc)
     weekly_cpr = get_weekly_cpr(weekly_ohlc)
 
     return {
         "strike": strike_symbol,
-        "signal": daily_cpr.is_inverted,          # main trigger condition
+        "signal": daily_cpr.is_strong_inverted(inversion_depth_pct),  # main trigger condition
         "daily_narrow": daily_cpr.is_narrow(narrow_threshold_pct),
         "weekly_narrow": weekly_cpr.is_narrow(narrow_threshold_pct),
         "daily_cpr": {
             "bc": daily_cpr.bc, "pivot": daily_cpr.pivot, "tc": daily_cpr.tc,
             "inverted": daily_cpr.is_inverted,
+            "strong_inverted": daily_cpr.is_strong_inverted(inversion_depth_pct),
         },
         "weekly_cpr": {
             "bc": weekly_cpr.bc, "pivot": weekly_cpr.pivot, "tc": weekly_cpr.tc,
             "inverted": weekly_cpr.is_inverted,
+            "strong_inverted": weekly_cpr.is_strong_inverted(inversion_depth_pct),
         },
     }
 
@@ -126,8 +148,8 @@ def check_strike_signal(strike_symbol: str,
 def format_signal_message(result: dict) -> str:
     """Formats a scan result into the Telegram-ready message layout you asked for."""
     d, w = result["daily_cpr"], result["weekly_cpr"]
-    d_tag = "Inverted ✓" if d["inverted"] else "Normal"
-    w_tag = "Inverted ✓" if w["inverted"] else "Normal"
+    d_tag = "Inverted ✓✓" if d["strong_inverted"] else ("Inverted (weak)" if d["inverted"] else "Normal")
+    w_tag = "Inverted ✓✓" if w["strong_inverted"] else ("Inverted (weak)" if w["inverted"] else "Normal")
     lines = [
         f"{result['strike']}",
         f"Daily CPR:  BC={d['bc']} | Pivot={d['pivot']} | TC={d['tc']}  ({d_tag})",
