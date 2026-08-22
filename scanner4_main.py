@@ -3,14 +3,17 @@ Scanner 4 - MAIN ORCHESTRATOR
 --------------------------------
 Run this file to execute the full scan:
     1. Load today's access_token (from manual login -> token.txt)
-    2. Build strike lists for NIFTY, SENSEX (index reducing pattern)
+    2. Fetch LIVE spot opening prices (NIFTY, SENSEX, stocks)
+    3. Calculate DYNAMIC weekly/monthly expiry dates
+    4. Build strike lists for NIFTY, SENSEX (index reducing pattern)
        and high-volume stocks (fixed 5 OTM)
-    3. For each strike, fetch daily + weekly option premium OHLC
-    4. Run Inverted CPR check (+ Narrow CPR flag) on each
-    5. Print/collect all strikes where signal = True
+    5. For each strike, fetch daily + weekly option premium OHLC
+    6. Run Inverted CPR check (+ Narrow CPR flag) on each
+    7. Print/collect all strikes where signal = True
 
 Usage:
     python scanner4_main.py
+    (run AFTER 9:15 AM IST so today's opening prices are available)
 
 Prerequisites (must run once before this, same day):
     1. python scanner4_manual_login.py     -> creates token.txt
@@ -23,6 +26,7 @@ from scanner4_strike_volume import (
     build_index_strike_list,
     build_stock_strike_list,
     get_high_volume_stocks,
+    get_instrument_key_map,
 )
 from scanner4_option_data import (
     download_instrument_master,
@@ -32,30 +36,40 @@ from scanner4_option_data import (
     fetch_weekly_ohlc,
 )
 from scanner4_cpr_calculator import check_strike_signal, format_signal_message
+from scanner4_live_data import (
+    get_index_spot_open,
+    get_all_stock_opens,
+    get_next_weekly_expiry,
+    get_next_monthly_expiry,
+)
 
 # ============================================================
-# CONFIG - fill these in before running
+# CONFIG
 # ============================================================
 
 TRADING_DAYS_CALENDAR = [
-    # TODO: replace with a real NSE trading-day calendar (holidays excluded)
-    # for now, generating weekdays for the current month as a placeholder
+    # TODO: replace with a real NSE trading-day calendar (holidays excluded).
+    # This placeholder generates weekdays for the current + next month, which
+    # is good enough for the strike-count pattern but doesn't skip holidays.
     datetime.date(2026, 8, d) for d in range(1, 32)
     if datetime.date(2026, 8, d).weekday() < 5
+] + [
+    datetime.date(2026, 9, d) for d in range(1, 31)
+    if datetime.date(2026, 9, d).weekday() < 5
 ]
 
-NIFTY_SPOT_OPEN = 24837.0     # TODO: fetch live today's opening spot price
-SENSEX_SPOT_OPEN = 81250.0    # TODO: fetch live today's opening spot price
-NIFTY_EXPIRY = "25-08-2026"   # TODO: today's relevant weekly expiry, DD-MM-YYYY
-SENSEX_EXPIRY = "27-08-2026"  # TODO: today's relevant weekly expiry, DD-MM-YYYY
-STOCK_EXPIRY = "24-09-2026"   # TODO: current monthly expiry, DD-MM-YYYY
-
-NARROW_CPR_THRESHOLD_PCT = 0.5  # tune based on backtesting
+NARROW_CPR_THRESHOLD_PCT = 0.5   # tune based on backtesting
 INVERSION_DEPTH_THRESHOLD_PCT = 20.0  # tuned from live data: clear gap between
                                         # weak inversions (4-14%) and strong ones (40-63%)
-INVERSION_DEPTH_PCT = 20.0      # based on observed data: noise clusters under ~15%,
-                                 # real signals cluster 40%+. 20% is a safe cutoff.
-                                 # Adjust after a few more days of live output.
+
+STOCK_STRIKE_STEP_DEFAULT = 10   # fallback strike step for stocks not in the override map
+STOCK_STRIKE_STEP_OVERRIDE = {
+    # TODO: fill in real strike steps per stock as you notice mismatches.
+    # Upstox instrument master has the correct step per contract, but for
+    # now this is a simple manual override table for known large-cap steps.
+    "RELIANCE": 20, "TCS": 20, "HDFCBANK": 10, "INFY": 10,
+    "ICICIBANK": 10, "SBIN": 5,
+}
 
 
 def scan_index(name: str, spot_open: float, expiry: str,
@@ -82,16 +96,22 @@ def scan_index(name: str, spot_open: float, expiry: str,
                 continue
 
             label = f"{name} {int(strike)} {opt_type}"
-            result = check_strike_signal(label, daily_ohlc, weekly_ohlc, NARROW_CPR_THRESHOLD_PCT, INVERSION_DEPTH_THRESHOLD_PCT)
+            result = check_strike_signal(label, daily_ohlc, weekly_ohlc,
+                                          NARROW_CPR_THRESHOLD_PCT, INVERSION_DEPTH_THRESHOLD_PCT)
             results.append(result)
 
     return results
 
 
-def scan_stocks(access_token: str, option_lookup: dict, today: datetime.date) -> list:
+def scan_stocks(access_token: str, option_lookup: dict, today: datetime.date,
+                 stock_expiry: str) -> list:
     """Runs the full CPR scan for high-volume F&O stocks (monthly expiry)."""
     top_stocks = get_high_volume_stocks(access_token, top_n=15)
     print(f"[INFO] high volume stocks selected: {top_stocks}")
+
+    key_map = get_instrument_key_map()
+    stock_opens = get_all_stock_opens(access_token, top_stocks, key_map)
+    print(f"[INFO] live opening prices fetched for {len(stock_opens)}/{len(top_stocks)} stocks")
 
     results = []
     prev_day = today - datetime.timedelta(days=1)
@@ -99,14 +119,16 @@ def scan_stocks(access_token: str, option_lookup: dict, today: datetime.date) ->
     week_end = week_start + datetime.timedelta(days=4)
 
     for symbol in top_stocks:
-        # TODO: replace with live spot open fetch per stock, and correct strike step per stock
-        spot_open = 1500.0   # placeholder - must fetch live
-        strike_step = 20      # placeholder - varies per stock, needs a lookup
+        spot_open = stock_opens.get(symbol)
+        if not spot_open:
+            print(f"[SKIP] no live opening price for {symbol}")
+            continue
+        strike_step = STOCK_STRIKE_STEP_OVERRIDE.get(symbol, STOCK_STRIKE_STEP_DEFAULT)
 
         strikes = build_stock_strike_list(spot_open, strike_step)
         for opt_type, strike_list in strikes.items():
             for strike in strike_list:
-                ikey = get_option_instrument_key(option_lookup, symbol, strike, opt_type, STOCK_EXPIRY)
+                ikey = get_option_instrument_key(option_lookup, symbol, strike, opt_type, stock_expiry)
                 if not ikey:
                     continue
                 daily_ohlc = fetch_daily_ohlc(access_token, ikey, prev_day)
@@ -114,7 +136,8 @@ def scan_stocks(access_token: str, option_lookup: dict, today: datetime.date) ->
                 if not daily_ohlc or not weekly_ohlc:
                     continue
                 label = f"{symbol} {int(strike)} {opt_type}"
-                result = check_strike_signal(label, daily_ohlc, weekly_ohlc, NARROW_CPR_THRESHOLD_PCT, INVERSION_DEPTH_THRESHOLD_PCT)
+                result = check_strike_signal(label, daily_ohlc, weekly_ohlc,
+                                              NARROW_CPR_THRESHOLD_PCT, INVERSION_DEPTH_THRESHOLD_PCT)
                 results.append(result)
 
     return results
@@ -130,14 +153,24 @@ def main():
     print("[STEP 2] Building option lookup table...")
     option_lookup = build_option_lookup()
 
-    print("[STEP 3] Scanning NIFTY...")
-    nifty_results = scan_index("NIFTY", NIFTY_SPOT_OPEN, NIFTY_EXPIRY, access_token, option_lookup, today)
+    print("[STEP 3] Fetching live spot prices + expiry dates...")
+    nifty_spot = get_index_spot_open(access_token, "NIFTY")
+    sensex_spot = get_index_spot_open(access_token, "SENSEX")
+    nifty_expiry = get_next_weekly_expiry("NIFTY", today)
+    sensex_expiry = get_next_weekly_expiry("SENSEX", today)
+    stock_expiry = get_next_monthly_expiry(today)
+    print(f"[INFO] NIFTY spot={nifty_spot} expiry={nifty_expiry}")
+    print(f"[INFO] SENSEX spot={sensex_spot} expiry={sensex_expiry}")
+    print(f"[INFO] Stock monthly expiry={stock_expiry}")
 
-    print("[STEP 4] Scanning SENSEX...")
-    sensex_results = scan_index("SENSEX", SENSEX_SPOT_OPEN, SENSEX_EXPIRY, access_token, option_lookup, today)
+    print("[STEP 4] Scanning NIFTY...")
+    nifty_results = scan_index("NIFTY", nifty_spot, nifty_expiry, access_token, option_lookup, today)
 
-    print("[STEP 5] Scanning high-volume stocks...")
-    stock_results = scan_stocks(access_token, option_lookup, today)
+    print("[STEP 5] Scanning SENSEX...")
+    sensex_results = scan_index("SENSEX", sensex_spot, sensex_expiry, access_token, option_lookup, today)
+
+    print("[STEP 6] Scanning high-volume stocks...")
+    stock_results = scan_stocks(access_token, option_lookup, today, stock_expiry)
 
     all_results = nifty_results + sensex_results + stock_results
     signals = [r for r in all_results if r["signal"]]
