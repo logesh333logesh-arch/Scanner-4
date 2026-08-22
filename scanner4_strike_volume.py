@@ -188,10 +188,16 @@ def get_high_volume_stocks(access_token: str, top_n: int = 15,
             )
             resp.raise_for_status()
             data = resp.json().get("data", {})
-            for _, quote in data.items():
-                ikey = quote.get("instrument_token") or quote.get("instrument_key")
-                symbol = key_to_symbol.get(ikey)
-                if symbol:
+            for response_key, quote in data.items():
+                # Upstox returns dict keys like "NSE_EQ:RELIANCE" - extract the
+                # trading symbol directly from the key (more reliable than
+                # matching instrument_token, which may not always be present).
+                symbol = response_key.split(":")[-1] if ":" in response_key else None
+                if not symbol:
+                    # fallback: try matching via instrument_token/instrument_key field
+                    ikey = quote.get("instrument_token") or quote.get("instrument_key")
+                    symbol = key_to_symbol.get(ikey)
+                if symbol and symbol in fo_universe:
                     volume_map[symbol] = quote.get("volume", 0)
         except Exception as e:
             print(f"[WARN] batch volume fetch failed (batch {i // batch_size}): {e}")
