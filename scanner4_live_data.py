@@ -75,9 +75,14 @@ def get_all_stock_opens(access_token: str, symbols: list, key_map: dict) -> dict
                              params={"instrument_key": ",".join(batch)}, timeout=15)
         resp.raise_for_status()
         data = resp.json().get("data", {})
-        for _, quote in data.items():
-            ikey = quote.get("instrument_token") or quote.get("instrument_key")
-            symbol = key_to_symbol.get(ikey)
+        for response_key, quote in data.items():
+            # Upstox returns dict keys like "NSE_EQ:RELIANCE" - extract the
+            # trading symbol directly from the key (more reliable than
+            # matching instrument_token, which may not always be present).
+            symbol = response_key.split(":")[-1] if ":" in response_key else None
+            if not symbol:
+                ikey = quote.get("instrument_token") or quote.get("instrument_key")
+                symbol = key_to_symbol.get(ikey)
             open_price = quote.get("ohlc", {}).get("open")
             if symbol and open_price:
                 opens[symbol] = float(open_price)
