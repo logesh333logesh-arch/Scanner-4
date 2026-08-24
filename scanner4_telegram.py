@@ -13,17 +13,21 @@ Usage in scanner4_main.py:
 """
 
 import os
+import time
 import requests
 
 TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
 
-def send_telegram_message(text: str, bot_token: str = None, chat_id: str = None) -> bool:
+def send_telegram_message(text: str, bot_token: str = None, chat_id: str = None,
+                           max_retries: int = 2) -> bool:
     """
     Sends a single text message to the configured Telegram chat.
     Falls back to TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID env vars if not
-    passed explicitly. Returns True on success, False on failure (never
-    raises - a Telegram hiccup shouldn't crash the scanner).
+    passed explicitly. Retries on timeout/connection errors (mobile
+    networks can be flaky) before giving up. Returns True on success,
+    False on failure (never raises - a Telegram hiccup shouldn't crash
+    the scanner).
     """
     bot_token = bot_token or os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = chat_id or os.environ.get("TELEGRAM_CHAT_ID")
@@ -38,13 +42,19 @@ def send_telegram_message(text: str, bot_token: str = None, chat_id: str = None)
         "text": text,
         "parse_mode": "HTML",  # allows <b>bold</b> etc. in messages
     }
-    try:
-        resp = requests.post(url, json=payload, timeout=15)
-        resp.raise_for_status()
-        return True
-    except Exception as e:
-        print(f"[WARN] Telegram send failed: {e}")
-        return False
+
+    for attempt in range(1, max_retries + 2):  # e.g. max_retries=2 -> 3 total attempts
+        try:
+            resp = requests.post(url, json=payload, timeout=20)
+            resp.raise_for_status()
+            return True
+        except Exception as e:
+            if attempt <= max_retries:
+                print(f"[WARN] Telegram send attempt {attempt} failed ({e}), retrying...")
+                time.sleep(2)
+            else:
+                print(f"[WARN] Telegram send failed after {attempt} attempts: {e}")
+                return False
 
 
 def send_signals_to_telegram(signals: list, bot_token: str = None, chat_id: str = None) -> None:
@@ -78,3 +88,4 @@ def send_signals_to_telegram(signals: list, bot_token: str = None, chat_id: str 
 if __name__ == "__main__":
     ok = send_telegram_message("✅ Scanner 4 Telegram test message - if you see this, it's working!")
     print("Send success:", ok)
+  
