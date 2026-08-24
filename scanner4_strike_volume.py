@@ -148,7 +148,10 @@ def get_instrument_key_map(csv_path: str = "fo_instrument_keys.csv") -> Dict[str
         reader = csv.DictReader(f, delimiter=delimiter)
         reader.fieldnames = [name.strip() for name in reader.fieldnames]  # strip stray tabs/spaces
         for row in reader:
-            mapping[row["SYMBOL"].strip()] = row["INSTRUMENT_KEY"].strip()
+            symbol = (row.get("SYMBOL") or "").strip()
+            ikey = (row.get("INSTRUMENT_KEY") or "").strip()
+            if symbol and ikey:  # skip blank/malformed rows
+                mapping[symbol] = ikey
     return mapping
 
 
@@ -167,7 +170,8 @@ def get_high_volume_stocks(access_token: str, top_n: int = 15,
     fo_universe = fo_universe or get_fo_stock_universe()
     key_map = get_instrument_key_map(instrument_key_csv)
 
-    instrument_keys = [key_map[s] for s in fo_universe if s in key_map]
+    # dedupe + drop any empty/falsy keys (guards against blank rows in the CSV)
+    instrument_keys = sorted({key_map[s] for s in fo_universe if s in key_map and key_map[s]})
     key_to_symbol = {v: k for k, v in key_map.items()}
 
     headers = {
