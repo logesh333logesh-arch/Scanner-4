@@ -72,13 +72,21 @@ STOCK_STRIKE_STEP_OVERRIDE = {
 }
 
 
+def get_previous_trading_day(calendar: list, today: datetime.date) -> datetime.date:
+    """Returns the most recent trading day strictly before today (skips weekends/holidays)."""
+    earlier_days = [d for d in calendar if d < today]
+    if not earlier_days:
+        raise ValueError(f"No trading day found before {today} in the calendar")
+    return max(earlier_days)
+
+
 def scan_index(name: str, spot_open: float, expiry: str,
                 access_token: str, option_lookup: dict, today: datetime.date) -> list:
     """Runs the full CPR scan for one index (NIFTY or SENSEX)."""
     strikes = build_index_strike_list(name, spot_open, TRADING_DAYS_CALENDAR, today)
     results = []
 
-    prev_day = today - datetime.timedelta(days=1)
+    prev_day = get_previous_trading_day(TRADING_DAYS_CALENDAR, today)
     week_start = today - datetime.timedelta(days=today.weekday() + 7)  # prev Monday
     week_end = week_start + datetime.timedelta(days=4)                  # prev Friday
 
@@ -114,7 +122,7 @@ def scan_stocks(access_token: str, option_lookup: dict, today: datetime.date,
     print(f"[INFO] live opening prices fetched for {len(stock_opens)}/{len(top_stocks)} stocks")
 
     results = []
-    prev_day = today - datetime.timedelta(days=1)
+    prev_day = get_previous_trading_day(TRADING_DAYS_CALENDAR, today)
     week_start = today - datetime.timedelta(days=today.weekday() + 7)
     week_end = week_start + datetime.timedelta(days=4)
 
