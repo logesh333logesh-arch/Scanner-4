@@ -36,6 +36,7 @@ from scanner4_option_data import (
     fetch_weekly_ohlc,
 )
 from scanner4_cpr_calculator import check_strike_signal, format_signal_message
+from scanner4_telegram import send_signals_to_telegram
 from scanner4_live_data import (
     get_index_spot_open,
     get_all_stock_opens,
@@ -191,6 +192,9 @@ def main():
     for r in signals:
         print(format_signal_message(r))
         print("-" * 40)
+
+    print("\n[STEP 7] Sending results to Telegram...")
+    send_signals_to_telegram(signals)
 
     return signals
 
