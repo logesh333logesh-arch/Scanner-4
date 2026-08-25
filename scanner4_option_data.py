@@ -91,6 +91,29 @@ def get_option_instrument_key(lookup: dict, name: str, strike: float,
     return lookup.get(key)
 
 
+def get_dynamic_strike_step(lookup: dict, name: str, expiry_date: str) -> Optional[float]:
+    """
+    Derives the real strike step for a symbol+expiry directly from the
+    instrument master, instead of relying on a manually maintained
+    override table (which goes stale and silently breaks strike lookups
+    for any stock not in the table).
+
+    Looks at all CE strikes listed for this symbol+expiry, sorts them,
+    and returns the smallest gap between consecutive strikes - this is
+    the actual exchange-defined strike step.
+
+    Returns None if fewer than 2 strikes found (can't determine a step).
+    """
+    strikes = sorted({
+        k[1] for k in lookup
+        if k[0] == name and k[2] == "CE" and k[3] == expiry_date
+    })
+    if len(strikes) < 2:
+        return None
+    gaps = [round(strikes[i + 1] - strikes[i], 4) for i in range(len(strikes) - 1)]
+    return min(gaps)
+
+
 # ============================================================
 # 2. HISTORICAL OHLC FETCH (daily candles from Upstox)
 # ============================================================
@@ -120,7 +143,7 @@ def fetch_daily_ohlc(access_token: str, instrument_key: str,
     if not candles:
         return None
     c = candles[0]  # [timestamp, open, high, low, close, volume, oi]
-    return OHLC(high=c[2], low=c[3], close=c[4])
+    return OHLC(high=c[2], low=c[3], close=c[4], open=c[1], volume=c[5])
 
 
 def fetch_weekly_ohlc(access_token: str, instrument_key: str,
@@ -137,7 +160,10 @@ def fetch_weekly_ohlc(access_token: str, instrument_key: str,
     highs = [c[2] for c in candles]
     lows = [c[3] for c in candles]
     last_close = candles[-1][4]
-    return OHLC(high=max(highs), low=min(lows), close=last_close)
+    first_open = candles[0][1]
+    total_volume = sum(c[5] for c in candles)
+    return OHLC(high=max(highs), low=min(lows), close=last_close,
+                open=first_open, volume=total_volume)
 
 
 # ============================================================
@@ -148,3 +174,4 @@ if __name__ == "__main__":
     print("Run download_instrument_master() first, then build_option_lookup(),")
     print("then get_option_instrument_key() to resolve a strike's instrument_key,")
     print("then fetch_daily_ohlc() / fetch_weekly_ohlc() using your token.txt token.")
+                           
