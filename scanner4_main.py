@@ -32,6 +32,7 @@ from scanner4_option_data import (
     download_instrument_master,
     build_option_lookup,
     get_option_instrument_key,
+    get_dynamic_strike_step,
     fetch_daily_ohlc,
     fetch_weekly_ohlc,
 )
@@ -62,15 +63,8 @@ TRADING_DAYS_CALENDAR = [
 NARROW_CPR_THRESHOLD_PCT = 0.5   # tune based on backtesting
 INVERSION_DEPTH_THRESHOLD_PCT = 20.0  # tuned from live data: clear gap between
                                         # weak inversions (4-14%) and strong ones (40-63%)
-
-STOCK_STRIKE_STEP_DEFAULT = 10   # fallback strike step for stocks not in the override map
-STOCK_STRIKE_STEP_OVERRIDE = {
-    # TODO: fill in real strike steps per stock as you notice mismatches.
-    # Upstox instrument master has the correct step per contract, but for
-    # now this is a simple manual override table for known large-cap steps.
-    "RELIANCE": 20, "TCS": 20, "HDFCBANK": 10, "INFY": 10,
-    "ICICIBANK": 10, "SBIN": 5,
-}
+# NOTE: stock strike step is now derived automatically per-symbol from the
+# live instrument master (see get_dynamic_strike_step) - no manual table needed.
 
 
 def get_previous_trading_day(calendar: list, today: datetime.date) -> datetime.date:
@@ -132,13 +126,19 @@ def scan_stocks(access_token: str, option_lookup: dict, today: datetime.date,
         if not spot_open:
             print(f"[SKIP] no live opening price for {symbol}")
             continue
-        strike_step = STOCK_STRIKE_STEP_OVERRIDE.get(symbol, STOCK_STRIKE_STEP_DEFAULT)
+
+        strike_step = get_dynamic_strike_step(option_lookup, symbol, stock_expiry)
+        if not strike_step:
+            print(f"[SKIP] could not determine strike step for {symbol} "
+                  f"(no contracts found for expiry {stock_expiry})")
+            continue
 
         strikes = build_stock_strike_list(spot_open, strike_step)
         for opt_type, strike_list in strikes.items():
             for strike in strike_list:
                 ikey = get_option_instrument_key(option_lookup, symbol, strike, opt_type, stock_expiry)
                 if not ikey:
+                    print(f"[SKIP] no instrument_key for {symbol} {strike} {opt_type}")
                     continue
                 daily_ohlc = fetch_daily_ohlc(access_token, ikey, prev_day)
                 weekly_ohlc = fetch_weekly_ohlc(access_token, ikey, week_start, week_end)
@@ -201,3 +201,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+                
