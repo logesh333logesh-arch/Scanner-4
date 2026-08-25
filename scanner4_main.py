@@ -33,6 +33,7 @@ from scanner4_option_data import (
     build_option_lookup,
     get_option_instrument_key,
     get_dynamic_strike_step,
+    get_next_expiry_for_symbol,
     fetch_daily_ohlc,
     fetch_weekly_ohlc,
 )
@@ -127,16 +128,21 @@ def scan_stocks(access_token: str, option_lookup: dict, today: datetime.date,
             print(f"[SKIP] no live opening price for {symbol}")
             continue
 
-        strike_step = get_dynamic_strike_step(option_lookup, symbol, stock_expiry)
+        symbol_expiry = get_next_expiry_for_symbol(option_lookup, symbol, today)
+        if not symbol_expiry:
+            print(f"[SKIP] no option contracts found for {symbol} at all")
+            continue
+
+        strike_step = get_dynamic_strike_step(option_lookup, symbol, symbol_expiry)
         if not strike_step:
             print(f"[SKIP] could not determine strike step for {symbol} "
-                  f"(no contracts found for expiry {stock_expiry})")
+                  f"(no contracts found for expiry {symbol_expiry})")
             continue
 
         strikes = build_stock_strike_list(spot_open, strike_step)
         for opt_type, strike_list in strikes.items():
             for strike in strike_list:
-                ikey = get_option_instrument_key(option_lookup, symbol, strike, opt_type, stock_expiry)
+                ikey = get_option_instrument_key(option_lookup, symbol, strike, opt_type, symbol_expiry)
                 if not ikey:
                     print(f"[SKIP] no instrument_key for {symbol} {strike} {opt_type}")
                     continue
@@ -201,4 +207,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-                
