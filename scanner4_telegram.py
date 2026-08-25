@@ -59,10 +59,14 @@ def send_telegram_message(text: str, bot_token: str = None, chat_id: str = None,
 
 def send_signals_to_telegram(signals: list, bot_token: str = None, chat_id: str = None) -> None:
     """
-    Sends each signal as a separate Telegram message (keeps messages short
-    and readable on mobile). If there are no signals, sends a short
-    'no signals today' notice instead of staying silent - so you know the
-    scanner actually ran.
+    Sends signals to Telegram in BATCHED messages (not one message per
+    signal) - reduces total network calls, which matters when the phone's
+    connection is unstable. Groups up to 5 signals per message (keeps
+    each message comfortably under Telegram's 4096-char limit while
+    cutting request count by ~5x on busy days).
+
+    If there are no signals, sends a short 'no signals today' notice
+    instead of staying silent - so you know the scanner actually ran.
     """
     from scanner4_cpr_calculator import format_signal_message
 
@@ -74,12 +78,17 @@ def send_signals_to_telegram(signals: list, bot_token: str = None, chat_id: str 
     header = f"📊 <b>Scanner 4 — {len(signals)} signal(s) found</b>"
     send_telegram_message(header, bot_token, chat_id)
 
-    for r in signals:
-        msg = format_signal_message(r)
-        # wrap strike name in bold for readability
-        lines = msg.split("\n")
-        lines[0] = f"<b>{lines[0]}</b>"
-        send_telegram_message("\n".join(lines), bot_token, chat_id)
+    batch_size = 5
+    for i in range(0, len(signals), batch_size):
+        batch = signals[i:i + batch_size]
+        messages = []
+        for r in batch:
+            msg = format_signal_message(r)
+            lines = msg.split("\n")
+            lines[0] = f"<b>{lines[0]}</b>"
+            messages.append("\n".join(lines))
+        combined = "\n\n".join(messages)
+        send_telegram_message(combined, bot_token, chat_id)
 
 
 # ============================================================
