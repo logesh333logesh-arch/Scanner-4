@@ -20,7 +20,7 @@ TELEGRAM_API_URL = "https://api.telegram.org/bot{token}/sendMessage"
 
 
 def send_telegram_message(text: str, bot_token: str = None, chat_id: str = None,
-                           max_retries: int = 2) -> bool:
+                           max_retries: int = 3) -> bool:
     """
     Sends a single text message to the configured Telegram chat.
     Falls back to TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID env vars if not
@@ -45,13 +45,13 @@ def send_telegram_message(text: str, bot_token: str = None, chat_id: str = None,
 
     for attempt in range(1, max_retries + 2):  # e.g. max_retries=2 -> 3 total attempts
         try:
-            resp = requests.post(url, json=payload, timeout=20)
+            resp = requests.post(url, json=payload, timeout=30)
             resp.raise_for_status()
             return True
         except Exception as e:
             if attempt <= max_retries:
                 print(f"[WARN] Telegram send attempt {attempt} failed ({e}), retrying...")
-                time.sleep(2)
+                time.sleep(3)
             else:
                 print(f"[WARN] Telegram send failed after {attempt} attempts: {e}")
                 return False
