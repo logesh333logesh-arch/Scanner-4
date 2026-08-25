@@ -114,6 +114,37 @@ def get_dynamic_strike_step(lookup: dict, name: str, expiry_date: str) -> Option
     return min(gaps)
 
 
+def get_next_expiry_for_symbol(lookup: dict, name: str, today: datetime.date) -> Optional[str]:
+    """
+    Finds the nearest upcoming expiry date actually listed in the
+    instrument master for this symbol - avoids guessing expiry dates
+    from calendar rules (which change over time and vary by exchange/
+    symbol). Returns 'DD-MM-YYYY' string, or None if no contracts found
+    for this symbol at all.
+    """
+    expiry_dates = set()
+    for k in lookup:
+        if k[0] == name and k[2] == "CE":
+            expiry_dates.add(k[3])
+
+    if not expiry_dates:
+        return None
+
+    parsed = []
+    for ds in expiry_dates:
+        try:
+            d = datetime.datetime.strptime(ds, "%d-%m-%Y").date()
+        except ValueError:
+            continue
+        if d >= today:
+            parsed.append((d, ds))
+
+    if not parsed:
+        return None
+    parsed.sort()
+    return parsed[0][1]
+
+
 # ============================================================
 # 2. HISTORICAL OHLC FETCH (daily candles from Upstox)
 # ============================================================
@@ -174,4 +205,4 @@ if __name__ == "__main__":
     print("Run download_instrument_master() first, then build_option_lookup(),")
     print("then get_option_instrument_key() to resolve a strike's instrument_key,")
     print("then fetch_daily_ohlc() / fetch_weekly_ohlc() using your token.txt token.")
-    
+          
