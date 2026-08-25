@@ -57,6 +57,13 @@ def build_option_lookup(master_json_path: str = "complete.json") -> dict:
         value = instrument_key
 
     Only keeps CE/PE rows to keep this fast and light in memory.
+
+    Uses 'underlying_symbol' (e.g. 'TATASTEEL') for the name, NOT the raw
+    'name' field - for stock options, Upstox's 'name' field is the full
+    company name (e.g. 'TATA STEEL LIMITED'), which won't match trading
+    symbols from fo_stocks.csv. For indices, underlying_symbol still
+    resolves correctly (falls back to 'name' if underlying_symbol is
+    missing, which covers NIFTY/SENSEX index option rows).
     """
     with open(master_json_path) as f:
         data = json.load(f)
@@ -65,7 +72,7 @@ def build_option_lookup(master_json_path: str = "complete.json") -> dict:
     for d in data:
         if d.get("instrument_type") not in ("CE", "PE"):
             continue
-        name = d.get("name")
+        name = d.get("underlying_symbol") or d.get("name")
         strike = d.get("strike_price")
         opt_type = d.get("instrument_type")
         expiry_ms = d.get("expiry")
@@ -205,4 +212,3 @@ if __name__ == "__main__":
     print("Run download_instrument_master() first, then build_option_lookup(),")
     print("then get_option_instrument_key() to resolve a strike's instrument_key,")
     print("then fetch_daily_ohlc() / fetch_weekly_ohlc() using your token.txt token.")
-          
