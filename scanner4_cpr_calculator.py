@@ -26,6 +26,8 @@ class OHLC:
     high: float
     low: float
     close: float
+    open: float = None    # optional - needed for % change / color indicator
+    volume: float = None  # optional - needed for volume display
 
 
 @dataclass
@@ -142,6 +144,7 @@ def check_strike_signal(strike_symbol: str,
             "inverted": weekly_cpr.is_inverted,
             "strong_inverted": weekly_cpr.is_strong_inverted(inversion_depth_pct),
         },
+        "daily_price": {"open": daily_ohlc.open, "close": daily_ohlc.close, "volume": daily_ohlc.volume},
     }
 
 
@@ -158,11 +161,20 @@ def format_signal_message(result: dict) -> str:
 
     d_tag = tag_with_depth(d, d["bc"], d["tc"], d["pivot"])
     w_tag = tag_with_depth(w, w["bc"], w["tc"], w["pivot"])
-    lines = [
-        f"{result['strike']}",
-        f"Daily CPR:  BC={d['bc']} | Pivot={d['pivot']} | TC={d['tc']}  ({d_tag})",
-        f"Weekly CPR: BC={w['bc']} | Pivot={w['pivot']} | TC={w['tc']}  ({w_tag})",
-    ]
+
+    lines = [f"{result['strike']}"]
+
+    # Price move indicator (color-coded up/down, like a volume-spike alert)
+    price = result.get("daily_price")
+    if price and price.get("open") and price.get("close"):
+        open_p, close_p = price["open"], price["close"]
+        pct_change = ((close_p - open_p) / open_p) * 100 if open_p else 0
+        arrow = "🟢▲" if pct_change >= 0 else "🔴▼"
+        vol_str = f" | Vol={int(price['volume']):,}" if price.get("volume") else ""
+        lines.append(f"{arrow} {pct_change:+.1f}% (O={open_p} → C={close_p}){vol_str}")
+
+    lines.append(f"Daily CPR:  BC={d['bc']} | Pivot={d['pivot']} | TC={d['tc']}  ({d_tag})")
+    lines.append(f"Weekly CPR: BC={w['bc']} | Pivot={w['pivot']} | TC={w['tc']}  ({w_tag})")
     return "\n".join(lines)
 
 
@@ -195,3 +207,4 @@ if __name__ == "__main__":
     print(result)
     print("\n--- Telegram Message Format ---")
     print(format_signal_message(result))
+  
