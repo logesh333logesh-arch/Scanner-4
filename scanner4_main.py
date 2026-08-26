@@ -36,6 +36,7 @@ from scanner4_option_data import (
     get_next_expiry_for_symbol,
     fetch_daily_ohlc,
     fetch_weekly_ohlc,
+    fetch_volume_stats,
 )
 from scanner4_cpr_calculator import check_strike_signal, format_signal_message
 from scanner4_telegram import send_signals_to_telegram
@@ -102,6 +103,7 @@ def scan_index(name: str, spot_open: float, expiry: str,
             label = f"{name} {int(strike)} {opt_type}"
             result = check_strike_signal(label, daily_ohlc, weekly_ohlc,
                                           NARROW_CPR_THRESHOLD_PCT, INVERSION_DEPTH_THRESHOLD_PCT)
+            result["volume_stats"] = fetch_volume_stats(access_token, ikey, prev_day)
             results.append(result)
 
     return results
@@ -153,6 +155,7 @@ def scan_stocks(access_token: str, option_lookup: dict, today: datetime.date,
                 label = f"{symbol} {int(strike)} {opt_type}"
                 result = check_strike_signal(label, daily_ohlc, weekly_ohlc,
                                               NARROW_CPR_THRESHOLD_PCT, INVERSION_DEPTH_THRESHOLD_PCT)
+                result["volume_stats"] = fetch_volume_stats(access_token, ikey, prev_day)
                 results.append(result)
 
     return results
