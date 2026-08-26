@@ -173,6 +173,27 @@ def fetch_daily_candles(access_token: str, instrument_key: str,
     return list(reversed(candles))  # oldest -> newest
 
 
+def fetch_volume_stats(access_token: str, instrument_key: str,
+                        prev_day: datetime.date, lookback_days: int = 20) -> Optional[dict]:
+    """
+    Fetches the last `lookback_days` trading days of daily candles and
+    returns {'current': latest day's volume, 'avg': average volume over
+    the lookback window}. Used to classify today's volume as Low/Mid/
+    High/Very High relative to its own recent history.
+
+    Fetches a wider calendar window (lookback_days * 2) to safely cover
+    weekends/holidays, then keeps only the most recent `lookback_days`
+    trading candles.
+    """
+    from_date = (prev_day - datetime.timedelta(days=lookback_days * 2)).strftime("%Y-%m-%d")
+    to_date = prev_day.strftime("%Y-%m-%d")
+    candles = fetch_daily_candles(access_token, instrument_key, from_date, to_date)
+    if not candles:
+        return None
+    volumes = [c[5] for c in candles][-lookback_days:]
+    if not volumes:
+        return None
+    return {"current": volumes[-1], "avg": sum(volumes) / len(volumes)}
 def fetch_daily_ohlc(access_token: str, instrument_key: str,
                       target_date: datetime.date) -> Optional[OHLC]:
     """Fetches OHLC for a SINGLE previous trading day (target_date)."""
