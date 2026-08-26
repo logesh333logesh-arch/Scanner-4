@@ -148,33 +148,62 @@ def check_strike_signal(strike_symbol: str,
     }
 
 
+def classify_volume(current_vol: float, avg_vol: float) -> str:
+    """
+    Classifies current day's volume relative to its own recent average
+    (20-day, computed by the caller) and returns the emoji + label.
+        < 0.75x avg  -> Low
+        0.75x-1.5x   -> Mid range
+        1.5x-2.0x    -> High
+        > 2.0x       -> Very High
+    """
+    if not avg_vol:
+        return ""
+    ratio = current_vol / avg_vol
+    if ratio > 2.0:
+        return "🚨 Very High"
+    if ratio > 1.5:
+        return "🔋 High"
+    if ratio >= 0.75:
+        return "🎚️ Mid range"
+    return "🪫 Low"
+
+
 def format_signal_message(result: dict) -> str:
-    """Formats a scan result into the Telegram-ready message layout you asked for."""
+    """Formats a scan result into the Telegram-ready message layout,
+    using emoji in place of text labels (Daily/Weekly CPR, strength,
+    depth, volume tier) per the requested style."""
     d, w = result["daily_cpr"], result["weekly_cpr"]
 
     def tag_with_depth(cpr_dict, bc, tc, pivot):
         if not cpr_dict["inverted"]:
-            return "Normal"
+            return "⏸️ Normal"
         depth_pct = ((bc - tc) / pivot) * 100 if pivot else 0
-        marker = "✓✓" if cpr_dict["strong_inverted"] else "(weak)"
-        return f"Inverted {marker} [depth={depth_pct:.1f}%]"
+        marker = "💪" if cpr_dict["strong_inverted"] else "🚾"
+        return f"{marker} ♨️{depth_pct:.1f}%"
 
     d_tag = tag_with_depth(d, d["bc"], d["tc"], d["pivot"])
     w_tag = tag_with_depth(w, w["bc"], w["tc"], w["pivot"])
 
     lines = [f"{result['strike']}"]
 
-    # Price move indicator (color-coded up/down, like a volume-spike alert)
+    # Price move indicator (color-coded up/down)
     price = result.get("daily_price")
     if price and price.get("open") and price.get("close"):
         open_p, close_p = price["open"], price["close"]
         pct_change = ((close_p - open_p) / open_p) * 100 if open_p else 0
         arrow = "🟢▲" if pct_change >= 0 else "🔴▼"
-        vol_str = f" | Vol={int(price['volume']):,}" if price.get("volume") else ""
-        lines.append(f"{arrow} {pct_change:+.1f}% (O={open_p} → C={close_p}){vol_str}")
+        lines.append(f"{arrow} {pct_change:+.1f}% (O={open_p} → C={close_p})")
 
-    lines.append(f"Daily CPR:  BC={d['bc']} | Pivot={d['pivot']} | TC={d['tc']}  ({d_tag})")
-    lines.append(f"Weekly CPR: BC={w['bc']} | Pivot={w['pivot']} | TC={w['tc']}  ({w_tag})")
+    # Volume tier (needs avg_volume attached by caller - see scanner4_main.py)
+    vol_stats = result.get("volume_stats")
+    if vol_stats and vol_stats.get("current") and vol_stats.get("avg"):
+        vol_label = classify_volume(vol_stats["current"], vol_stats["avg"])
+        if vol_label:
+            lines.append(vol_label)
+
+    lines.append(f"🚥 {d['bc']} | {d['pivot']} | {d['tc']}  {d_tag}")
+    lines.append(f"🧮 {w['bc']} | {w['pivot']} | {w['tc']}  {w_tag}")
     return "\n".join(lines)
 
 
@@ -207,4 +236,3 @@ if __name__ == "__main__":
     print(result)
     print("\n--- Telegram Message Format ---")
     print(format_signal_message(result))
-  
