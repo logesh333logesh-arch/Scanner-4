@@ -71,7 +71,7 @@ def send_signals_to_telegram(signals: list, bot_token: str = None, chat_id: str 
     from scanner4_cpr_calculator import format_signal_message
 
     if not signals:
-        send_telegram_message("📊 Scanner 4: No signals today (depth >= threshold not met on any strike).",
+        send_telegram_message("📊 Scanner 4: No signals today (Narrow CPR + full-body top-close candle not met on any strike).",
                                bot_token, chat_id)
         return
 
@@ -97,4 +97,3 @@ def send_signals_to_telegram(signals: list, bot_token: str = None, chat_id: str 
 if __name__ == "__main__":
     ok = send_telegram_message("✅ Scanner 4 Telegram test message - if you see this, it's working!")
     print("Send success:", ok)
-  
