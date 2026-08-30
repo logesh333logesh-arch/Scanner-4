@@ -1,15 +1,17 @@
 """
-Scanner 4 - MAIN ORCHESTRATOR
---------------------------------
+Scanner 4 - MAIN ORCHESTRATOR (SIMPLIFIED CONDITION SET)
+--------------------------------------------------------------
 Run this file to execute the full scan:
     1. Load today's access_token (from manual login -> token.txt)
     2. Fetch LIVE spot opening prices (NIFTY, SENSEX, stocks)
     3. Calculate DYNAMIC weekly/monthly expiry dates
     4. Build strike lists for NIFTY, SENSEX (index reducing pattern)
        and high-volume stocks (fixed 5 OTM)
-    5. For each strike, fetch daily + weekly option premium OHLC
-    6. Run Inverted CPR check (+ Narrow CPR flag) on each
-    7. Print/collect all strikes where signal = True
+    5. For each strike, fetch daily option premium OHLC (weekly OHLC no
+       longer needed - condition set uses daily CPR + daily candle only)
+    6. Run signal check: Narrow CPR (daily) AND full-body candle closing
+       near the top - both must be true, nothing else matters
+    7. Print/collect all strikes where signal = True, send to Telegram
 
 Usage:
     python scanner4_main.py
@@ -35,7 +37,6 @@ from scanner4_option_data import (
     get_dynamic_strike_step,
     get_next_expiry_for_symbol,
     fetch_daily_ohlc,
-    fetch_weekly_ohlc,
     fetch_volume_stats,
 )
 from scanner4_cpr_calculator import check_strike_signal, format_signal_message
@@ -44,7 +45,6 @@ from scanner4_live_data import (
     get_index_spot_open,
     get_all_stock_opens,
     get_next_weekly_expiry,
-    get_next_monthly_expiry,
 )
 
 # ============================================================
@@ -62,10 +62,11 @@ TRADING_DAYS_CALENDAR = [
     if datetime.date(2026, 9, d).weekday() < 5
 ]
 
-NARROW_CPR_THRESHOLD_PCT = 0.5   # tune based on backtesting
-INVERSION_DEPTH_THRESHOLD_PCT = 20.0  # tuned from live data: clear gap between
-                                        # weak inversions (4-14%) and strong ones (40-63%)
-# NOTE: stock strike step is now derived automatically per-symbol from the
+# ---- Signal condition thresholds (tune based on backtesting) ----
+NARROW_CPR_THRESHOLD_PCT = 0.5     # daily CPR width as % of pivot, must be <= this
+FULL_BODY_MIN_RATIO = 0.70          # candle body must be >= 70% of the day's range
+MAX_UPPER_WICK_RATIO = 0.10         # upper wick must be <= 10% of the day's range
+# NOTE: stock strike step is derived automatically per-symbol from the
 # live instrument master (see get_dynamic_strike_step) - no manual table needed.
 
 
@@ -79,13 +80,10 @@ def get_previous_trading_day(calendar: list, today: datetime.date) -> datetime.d
 
 def scan_index(name: str, spot_open: float, expiry: str,
                 access_token: str, option_lookup: dict, today: datetime.date) -> list:
-    """Runs the full CPR scan for one index (NIFTY or SENSEX)."""
+    """Runs the simplified CPR+candle scan for one index (NIFTY or SENSEX)."""
     strikes = build_index_strike_list(name, spot_open, TRADING_DAYS_CALENDAR, today)
     results = []
-
     prev_day = get_previous_trading_day(TRADING_DAYS_CALENDAR, today)
-    week_start = today - datetime.timedelta(days=today.weekday() + 7)  # prev Monday
-    week_end = week_start + datetime.timedelta(days=4)                  # prev Friday
 
     for opt_type, strike_list in strikes.items():
         for strike in strike_list:
@@ -95,23 +93,21 @@ def scan_index(name: str, spot_open: float, expiry: str,
                 continue
 
             daily_ohlc = fetch_daily_ohlc(access_token, ikey, prev_day)
-            weekly_ohlc = fetch_weekly_ohlc(access_token, ikey, week_start, week_end)
-            if not daily_ohlc or not weekly_ohlc:
+            if not daily_ohlc:
                 print(f"[SKIP] missing OHLC data for {name} {strike} {opt_type}")
                 continue
 
             label = f"{name} {int(strike)} {opt_type}"
-            result = check_strike_signal(label, daily_ohlc, weekly_ohlc,
-                                          NARROW_CPR_THRESHOLD_PCT, INVERSION_DEPTH_THRESHOLD_PCT)
+            result = check_strike_signal(label, daily_ohlc, NARROW_CPR_THRESHOLD_PCT,
+                                          FULL_BODY_MIN_RATIO, MAX_UPPER_WICK_RATIO)
             result["volume_stats"] = fetch_volume_stats(access_token, ikey, prev_day)
             results.append(result)
 
     return results
 
 
-def scan_stocks(access_token: str, option_lookup: dict, today: datetime.date,
-                 stock_expiry: str) -> list:
-    """Runs the full CPR scan for high-volume F&O stocks (monthly expiry)."""
+def scan_stocks(access_token: str, option_lookup: dict, today: datetime.date) -> list:
+    """Runs the simplified CPR+candle scan for high-volume F&O stocks (monthly expiry)."""
     top_stocks = get_high_volume_stocks(access_token, top_n=15)
     print(f"[INFO] high volume stocks selected: {top_stocks}")
 
@@ -121,8 +117,6 @@ def scan_stocks(access_token: str, option_lookup: dict, today: datetime.date,
 
     results = []
     prev_day = get_previous_trading_day(TRADING_DAYS_CALENDAR, today)
-    week_start = today - datetime.timedelta(days=today.weekday() + 7)
-    week_end = week_start + datetime.timedelta(days=4)
 
     for symbol in top_stocks:
         spot_open = stock_opens.get(symbol)
@@ -149,12 +143,11 @@ def scan_stocks(access_token: str, option_lookup: dict, today: datetime.date,
                     print(f"[SKIP] no instrument_key for {symbol} {strike} {opt_type}")
                     continue
                 daily_ohlc = fetch_daily_ohlc(access_token, ikey, prev_day)
-                weekly_ohlc = fetch_weekly_ohlc(access_token, ikey, week_start, week_end)
-                if not daily_ohlc or not weekly_ohlc:
+                if not daily_ohlc:
                     continue
                 label = f"{symbol} {int(strike)} {opt_type}"
-                result = check_strike_signal(label, daily_ohlc, weekly_ohlc,
-                                              NARROW_CPR_THRESHOLD_PCT, INVERSION_DEPTH_THRESHOLD_PCT)
+                result = check_strike_signal(label, daily_ohlc, NARROW_CPR_THRESHOLD_PCT,
+                                              FULL_BODY_MIN_RATIO, MAX_UPPER_WICK_RATIO)
                 result["volume_stats"] = fetch_volume_stats(access_token, ikey, prev_day)
                 results.append(result)
 
@@ -176,10 +169,8 @@ def main():
     sensex_spot = get_index_spot_open(access_token, "SENSEX")
     nifty_expiry = get_next_weekly_expiry("NIFTY", today)
     sensex_expiry = get_next_weekly_expiry("SENSEX", today)
-    stock_expiry = get_next_monthly_expiry(today)
     print(f"[INFO] NIFTY spot={nifty_spot} expiry={nifty_expiry}")
     print(f"[INFO] SENSEX spot={sensex_spot} expiry={sensex_expiry}")
-    print(f"[INFO] Stock monthly expiry={stock_expiry}")
 
     print("[STEP 4] Scanning NIFTY...")
     nifty_results = scan_index("NIFTY", nifty_spot, nifty_expiry, access_token, option_lookup, today)
@@ -188,13 +179,13 @@ def main():
     sensex_results = scan_index("SENSEX", sensex_spot, sensex_expiry, access_token, option_lookup, today)
 
     print("[STEP 6] Scanning high-volume stocks...")
-    stock_results = scan_stocks(access_token, option_lookup, today, stock_expiry)
+    stock_results = scan_stocks(access_token, option_lookup, today)
 
     all_results = nifty_results + sensex_results + stock_results
     signals = [r for r in all_results if r["signal"]]
 
-    print(f"\n[DONE] Scanned {len(all_results)} strikes, {len(signals)} REAL signals found "
-          f"(depth >= {INVERSION_DEPTH_THRESHOLD_PCT}%).\n")
+    print(f"\n[DONE] Scanned {len(all_results)} strikes, {len(signals)} signals found "
+          f"(Narrow CPR + full-body top-close candle).\n")
     print("=" * 50)
     print("SIGNAL STRIKES ONLY:")
     print("=" * 50)
